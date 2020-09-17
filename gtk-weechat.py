@@ -23,12 +23,15 @@ import os
 import sys
 import gi
 gi.require_version('Gtk', '3.0')
+gi.require_version('Handy', '1')
 from gi.repository import Gtk, Gio, GLib, Gdk
+from gi.repository import Handy
 from state import State
 from connection import ConnectionSettings
 from bufferlist import BufferList
 from config import GTKWeechatConfig
 from buffer import Buffer
+from leaflet import GtkWeechatLeaflet
 import protocol
 from network import Network, ConnectionStatus
 if sys.version_info < (3,):
@@ -72,27 +75,23 @@ class MainWindow(Gtk.ApplicationWindow):
         self.buffers.connect_after(
             "bufferSwitched", self.after_buffer_switched)
 
-        # Set up GTK box
-        box_horizontal = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
-                                 spacing=0)
-        self.add(box_horizontal)
-
+        # Main view with leaflet
+        self.leaflet = GtkWeechatLeaflet()
         # Set up a headerbar
+        self.titlebar = Handy.TitleBar()
         self.headerbar = Gtk.HeaderBar()
         self.headerbar.set_has_subtitle(True)
         self.headerbar.set_title("Gtk-WeeChat")
         self.headerbar.set_subtitle("Not connected.")
         self.headerbar.set_show_close_button(True)
-        self.set_titlebar(self.headerbar)
+        self.titlebar.add(self.headerbar)
+        self.set_titlebar(self.titlebar)
 
-        # Add widget showing list of buffers
-        box_horizontal.pack_start(
+        self.leaflet.buflist_page.pack_start(
             self.buffers.treescrolledwindow, False, False, 0)
-        sep = Gtk.Separator()
-        box_horizontal.pack_start(sep, False, False, 0)
-
         # Add stack of buffers
-        box_horizontal.pack_start(self.buffers.stack, True, True, 0)
+        self.leaflet.main_page.pack_start(self.buffers.stack, True, True, 0)
+        self.add(self.leaflet)
 
         # Set up a menu
         menubutton = Gtk.MenuButton()
@@ -127,8 +126,18 @@ class MainWindow(Gtk.ApplicationWindow):
         menu.append(menuitem_quit)
         menubutton.set_popup(menu)
 
+        self.buflist_button = Gtk.Button(label="Buffers")
+        self.headerbar.add(self.buflist_button)
+        self.buflist_button.connect('clicked', self.leaflet.toggle_visible)
+
+        self.leaflet.set_visible('main')
+        self.leaflet.connect('notify::folded', self.on_leaflet_folded)
+
         # Make everything visible (All is hidden by default in GTK 3)
         self.show_all()
+
+        # Start with buttons shown/hidden appropriately
+        self.on_leaflet_folded()
 
         # Set up the network module
         self.net = Network(self.config)
@@ -175,6 +184,12 @@ class MainWindow(Gtk.ApplicationWindow):
 
         # Sync our local hotlist with the weechat server
         GLib.timeout_add_seconds(60, self.request_hotlist)
+
+    def on_leaflet_folded(self, *args):
+        if self.leaflet.get_folded():
+            self.buflist_button.show()
+        else:
+            self.buflist_button.hide()
 
     def on_darkmode_toggled(self, source_object):
         """Callback for when the menubutton Dark is toggled. """
@@ -567,6 +582,7 @@ class Application(Gtk.Application):
     def do_startup(self):
         Gtk.Application.do_startup(self)
         self.window = MainWindow(self.config, title="Gtk-Weechat", application=self)
+        Handy.init()
         self.set_accels_for_action("win.buffer_next", ["<Control>Next", "<Alt>Down"])
         self.set_accels_for_action("win.buffer_prev", ["<Control>Prior", "<Alt>Up"])
         self.set_accels_for_action("win.buffer_expand", ["<Alt>Right"])
